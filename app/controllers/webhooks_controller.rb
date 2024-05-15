@@ -1,7 +1,7 @@
 class WebhooksController < ApplicationController
   skip_forgery_protection
   def stripe
-    stripe_secret_key = Rails.application.dig(:stripe, :secret_key)
+    stripe_secret_key = Rails.application.credentials.dig(:stripe, :private_key)
     Stripe.api_key = stripe_secret_key
     payload = request.body.read
     sig_header = request.env["HTTP_STRIPE_SIGNATURE"]
@@ -10,7 +10,7 @@ class WebhooksController < ApplicationController
 
     # Verify that the webhook comes from stripe
     begin
-      event = Stripe::Webhook.construct_event(pazload, sig_header, endpoint_secret)
+      event = Stripe::Webhook.construct_event(payload, sig_header, endpoint_secret)
     rescue JSON::ParseError => e
       status 400
       return
@@ -23,21 +23,24 @@ class WebhooksController < ApplicationController
     case event.type
     when 'checkout.session.completed'
       session = event.data.object
-      shipping_details = "#{session["shipping_details"]}"
-      address = "#{shipping_details['address']['line1']}
-      #{shipping_details['address']['city']},
-      #{shipping_details['address']['state']}
-      #{shipping_details["address"]["postal_code"]}"
+      shipping_details = session["shipping_details"]
+      if shipping_details
+        address = "#{shipping_details['address']['line1']} #{shipping_details['address']['city']}, #{shipping_details['address']['state']} #{shipping_details["address"]["postal_code"]}"
+      else
+        address = ''
+      end
       order = Order.create!(
         customer_email: session["customer_details"]["email"],
         total: session["amount_total"],
-        adress: address,
+        address: address,
         fulfilled: false
       )
-      full_session = Stripe::Checkout::Session.retrieve({
-        id: session.id,
-        expand: ['line_items']
-      })
+      full_session = Stripe::Checkout::Session.retrieve(
+        {
+          id: session.id,
+          expand: ['line_items']
+        }
+      )
       line_items = full_session.line_items
       line_items["data"].each do |item|
         product = Stripe::Product.retrieve(item["price"]["product"])
@@ -48,7 +51,7 @@ class WebhooksController < ApplicationController
           quantity: item["quantity"],
           size: product["metadata"]["size"]
         )
-        ProductStock.find(product["metadata"]["product_stock_id"]).decrement!(:amount, item["quantity"])
+        Stock.find(product["metadata"]["product_stock_id"]).decrement!(:amount, item["quantity"])
       end
 
     else
