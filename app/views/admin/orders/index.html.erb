@@ -49,6 +49,7 @@
               </tr>
             </thead>
           </table>
+          <%== pagy_nav(@not_fulfilled_orders_pagy) if @not_fulfilled_orders_pagy.pages > 1 %>
         </div>
       </div>
     </div>
@@ -95,6 +96,8 @@
               </tr>
             </thead>
           </table>
+          <%== pagy_nav(@fulfilled_orders_pagy) if @fulfilled_orders_pagy.pages > 1 %>
+
         </div>
       </div>
     </div>
